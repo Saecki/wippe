@@ -2,7 +2,7 @@ cmake_minimum_required (VERSION 2.8)
 project (wippe)
 
 set(CMAKE_THREAD_LIBS_INIT "-lpthread")
-SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread -std=c++14")
+SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread -std=c++17")
 set(CMAKE_HAVE_THREADS_LIBRARY 1)
 set(CMAKE_USE_PTHREADS_INIT 1)
 set(THREADS_PREFER_PTHREAD_FLAG ON)

@@ -1,6 +1,15 @@
 #include <chrono>
+#include <vector>
 #include <opencv2/opencv.hpp>
 #include <raspicam/raspicam_cv.h>
+
+static volatile bool running = true;
+
+static void* userInput(void*) {
+    while (running) {
+	if (std::cin.get() == 'q') running = false;
+    }
+}
 
 uint64_t mstime() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -9,15 +18,24 @@ uint64_t mstime() {
 }
 
 int main(int argc, char **argv) {
-    std::cout<<"Starting\nPress q to exit\n";
+    pthread_t threadId;
 
-    uint64_t start, end;
+    uint64_t t1, t2, t3;
     raspicam::RaspiCam_Cv camera;
-    cv::Mat imageOriginal;
-    cv::Mat imageHsv;
-    cv::Mat imageThresh;
+    cv::Mat imgOriginal;
+    cv::Mat imgHsv;
+    cv::Mat imgThresh;
+    std::vector<cv::Vec3f> v3fCircles;
 
-    camera.set(CV_CAP_PROP_FORMAT, CV_8UC1);
+    int lowH, highH, lowS, highS, lowV, highV;
+
+    std::cout<<"Starting\n";
+
+    (void) pthread_create(&threadId, 0, userInput, 0);
+    
+    std::cout<<"Press q to exit\n";
+
+    camera.set(CV_CAP_PROP_FORMAT, CV_8UC3);
 
     std::cout<<"Opening camera\n";
     if (!camera.open()) {
@@ -25,31 +43,72 @@ int main(int argc, char **argv) {
 	return 1;
     }
 
+    std::cout<<"Press enter to capture a closeup piture of the obejct you want to track\n";
+    std::string _;
+    std::getline(std::cin, _);
+
+    camera.grab();
+    camera.retrieve(imgOriginal);
+
+    cv::cvtColor(imgOriginal, imgHsv, CV_RGB2HSV);
+    cv::GaussianBlur(imgThresh, imgThresh, cv::Size(3, 3), 0);
+    cv::dilate(imgThresh, imgThresh, 0);
+    cv::erode(imgThresh, imgThresh, 0);
+
+    int px = imgThresh.rows / 2;
+    int py = imgThresh.cols / 2;
+    
+    int h = 0;
+    int s = 0;
+    int v = 0;
+
+    lowH = std::clamp(h - 30, 0, 255);
+    highH = std::clamp(h + 30, 0, 255);
+    lowS = std::clamp(s - 40, 0, 255);
+    highS = std::clamp(s + 40, 0, 255);
+    lowV = std::clamp(v - 40, 0, 255);
+    highV = std::clamp(v + 40, 0, 255);
+
     std::cout<<"Capturing frames\n";
 
     uint8_t i = 0;
-    char inputKey = 0;
-    while (inputKey != 27) {
-	if (i % 5 == 0) start = mstime();
+    while (running) {
+	t1 = mstime();
+
         camera.grab();
-        camera.retrieve(imageOriginal);
+        camera.retrieve(imgOriginal);
         
-	if (i % 5 == 0) {
-	    end = mstime();
-	    uint64_t msdiff = end - start;
-	    std::cout<<"\rCapturetime: "<<msdiff<<"ms  "<<std::flush; 
-	    i = 0;
-	}
+        t2 = mstime();
 
-        imageHsv = 
+        cv::cvtColor(imgOriginal, imgHsv, CV_RGB2HSV);
+        cv::inRange(imgHsv, cv::Scalar(lowH, lowS, lowV), cv::Scalar(highH, highS, highV), imgThresh);
 
+        cv::GaussianBlur(imgThresh, imgThresh, cv::Size(3, 3), 0);
+        cv::dilate(imgThresh, imgThresh, 0);
+        cv::erode(imgThresh, imgThresh, 0);
+
+        cv::HoughCircles(imgThresh, v3fCircles, CV_HOUGH_GRADIENT, 2, imgThresh.rows / 4, 100, 50, 10, 800);
+        
+        if (v3fCircles.size() == 0) {
+                std::cout<<"nothing detected\n";
+        }else {
+            for (int i = 0; i < v3fCircles.size(); i++) {
+                std::cout<<"x: "<<v3fCircles[i][0]<<", y: "<<v3fCircles[i][1]<<", r: "<<v3fCircles[i][2]<<"\n";
+            }
+        }
+
+        t3 = mstime();
+        uint64_t diff12 = t2 - t1;
+        uint64_t diff23 = t3 - t2;
+        std::cout<<"Capturetime: "<<diff12<<"ms, Computationtime: "<<diff23<<"ms\n"; 
+        i = 0;
 	++i;
-        inputKey = cv::waitKey(1);
     }
 
-    std::cout<<"\nStopping camera\n";
+    std::cout<<"Stopping camera\n";
     camera.release();
 
+    (void) pthread_join(threadId, NULL);
     std::cout<<"Done\n";
 
     return 0;
