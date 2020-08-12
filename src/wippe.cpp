@@ -27,13 +27,9 @@ int main(int argc, char **argv) {
     cv::Mat imgThresh;
     std::vector<cv::Vec3f> v3fCircles;
 
-    int lowH, highH, lowS, highS, lowV, highV;
+    uint8_t lowH, highH, lowS, highS, lowV, highV;
 
     std::cout<<"Starting\n";
-
-    (void) pthread_create(&threadId, 0, userInput, 0);
-    
-    std::cout<<"Press q to exit\n";
 
     camera.set(CV_CAP_PROP_FORMAT, CV_8UC3);
 
@@ -43,31 +39,47 @@ int main(int argc, char **argv) {
 	return 1;
     }
 
-    std::cout<<"Press enter to capture a closeup piture of the obejct you want to track\n";
-    std::string _;
-    std::getline(std::cin, _);
 
-    camera.grab();
-    camera.retrieve(imgOriginal);
+    char in;
+    do {
+        std::cout<<"Press enter to capture a closeup piture of the obejct you want to track"<<std::flush;
+        while (std::cin.get() != '\n');
 
-    cv::cvtColor(imgOriginal, imgHsv, CV_RGB2HSV);
-    cv::GaussianBlur(imgThresh, imgThresh, cv::Size(3, 3), 0);
-    cv::dilate(imgThresh, imgThresh, 0);
-    cv::erode(imgThresh, imgThresh, 0);
+        std::cout<<"Capturing samle data\n";
+        camera.grab();
+        camera.retrieve(imgOriginal);
 
-    int px = imgThresh.rows / 2;
-    int py = imgThresh.cols / 2;
+        cv::cvtColor(imgOriginal, imgHsv, CV_RGB2HSV);
+
+        cv::GaussianBlur(imgHsv, imgThresh, cv::Size(3, 3), 0);
+        cv::dilate(imgThresh, imgThresh, 0);
+        cv::erode(imgThresh, imgThresh, 0);
+
+        int px = imgThresh.cols / 2;
+        int py = imgThresh.rows / 2;
+        int pos = (py * imgThresh.cols + px) * imgThresh.step;
+
+        uint8_t h = imgThresh.data[py * imgThresh.step + imgThresh.channels() * px + 0];
+        uint8_t s = imgThresh.data[py * imgThresh.step + imgThresh.channels() * px + 1];
+        uint8_t v = imgThresh.data[py * imgThresh.step + imgThresh.channels() * px + 2];
+
+        std::cout<<"h: "<<unsigned(h)<<", s: "<<unsigned(s)<<", v: "<<unsigned(v)<<"\n";
+
+        lowH = std::clamp(h - 20, 0, 255);
+        highH = std::clamp(h + 20, 0, 255);
+        lowS = std::clamp(s - 20, 0, 255);
+        highS = std::clamp(s + 20, 0, 255);
+        lowV = std::clamp(v - 20, 0, 255);
+        highV = std::clamp(v + 20, 0, 255);
+
+        std::cout<<"Press y enter to continue or any other character to retry"<<std::flush;
+        std::cin>>in;
+    }
+    while (in! = 'y');
+
+    (void) pthread_create(&threadId, 0, userInput, 0);
     
-    int h = 0;
-    int s = 0;
-    int v = 0;
-
-    lowH = std::clamp(h - 30, 0, 255);
-    highH = std::clamp(h + 30, 0, 255);
-    lowS = std::clamp(s - 40, 0, 255);
-    highS = std::clamp(s + 40, 0, 255);
-    lowV = std::clamp(v - 40, 0, 255);
-    highV = std::clamp(v + 40, 0, 255);
+    std::cout<<"Press q enter to exit\n";
 
     std::cout<<"Capturing frames\n";
 
@@ -87,7 +99,7 @@ int main(int argc, char **argv) {
         cv::dilate(imgThresh, imgThresh, 0);
         cv::erode(imgThresh, imgThresh, 0);
 
-        cv::HoughCircles(imgThresh, v3fCircles, CV_HOUGH_GRADIENT, 2, imgThresh.rows / 4, 100, 50, 10, 800);
+        //cv::HoughCircles(imgThresh, v3fCircles, CV_HOUGH_GRADIENT, 2, imgThresh.rows / 4, 100, 50, 10, 800);
         
         if (v3fCircles.size() == 0) {
                 std::cout<<"nothing detected\n";
