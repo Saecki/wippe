@@ -20,7 +20,6 @@ uint64_t mstime() {
 int main(int argc, char **argv) {
     pthread_t threadId;
 
-    uint64_t t1, t2, t3;
     raspicam::RaspiCam_Cv camera;
     cv::Mat imgOriginal;
     cv::Mat imgHsv;
@@ -39,43 +38,50 @@ int main(int argc, char **argv) {
 	return 1;
     }
 
-
     char in;
+    std::cout<<"Press enter to capture a closeup piture of the obejct you want to track"<<std::flush;
     do {
-        std::cout<<"Press enter to capture a closeup piture of the obejct you want to track"<<std::flush;
         while (std::cin.get() != '\n');
 
         std::cout<<"Capturing samle data\n";
         camera.grab();
         camera.retrieve(imgOriginal);
 
-        cv::cvtColor(imgOriginal, imgHsv, CV_RGB2HSV);
-
-        cv::GaussianBlur(imgHsv, imgThresh, cv::Size(3, 3), 0);
+        cv::cvtColor(imgOriginal, imgHsv, CV_BGR2HSV);
+        cv::GaussianBlur(imgOriginal, imgThresh, cv::Size(9, 9), 0);
         cv::dilate(imgThresh, imgThresh, 0);
         cv::erode(imgThresh, imgThresh, 0);
 
-        int px = imgThresh.cols / 2;
-        int py = imgThresh.rows / 2;
-        int pos = (py * imgThresh.cols + px) * imgThresh.step;
+        std::cout<<"writing image\n";
+        cv::imwrite("/home/pi/original.jpg", imgOriginal);
+        cv::imwrite("/home/pi/thresh.jpg", imgThresh);
 
-        uint8_t h = imgThresh.data[py * imgThresh.step + imgThresh.channels() * px + 0];
-        uint8_t s = imgThresh.data[py * imgThresh.step + imgThresh.channels() * px + 1];
-        uint8_t v = imgThresh.data[py * imgThresh.step + imgThresh.channels() * px + 2];
+        int width = imgHsv.cols;
+        int height = imgHsv.rows;
+        int radius = std::min(width, height) / 3;
+
+        cv::Mat mask = cv::Mat::zeros(imgHsv.size(), CV_8UC1);
+        cv::circle(mask, cv::Point(width / 2, height / 2), radius, 1);
+
+        cv::Scalar mean = cv::mean(imgHsv, mask);
+
+        uint8_t h = mean[0];
+        uint8_t s = mean[1];
+        uint8_t v = mean[2];
 
         std::cout<<"h: "<<unsigned(h)<<", s: "<<unsigned(s)<<", v: "<<unsigned(v)<<"\n";
 
-        lowH = std::clamp(h - 20, 0, 255);
-        highH = std::clamp(h + 20, 0, 255);
-        lowS = std::clamp(s - 20, 0, 255);
-        highS = std::clamp(s + 20, 0, 255);
-        lowV = std::clamp(v - 20, 0, 255);
-        highV = std::clamp(v + 20, 0, 255);
+        lowH = std::clamp(h - 20, 0, 160);
+        highH = std::clamp(h + 20, 0, 160);
+        lowS = std::clamp(s - 60, 0, 255);
+        highS = std::clamp(s + 30, 0, 255);
+        lowV = std::clamp(v - 100, 0, 255);
+        highV = std::clamp(v + 40, 0, 255);
 
-        std::cout<<"Press y enter to continue or any other character to retry"<<std::flush;
+        std::cout<<"Press y enter to continue or any other character to retry:"<<std::flush;
         std::cin>>in;
     }
-    while (in! = 'y');
+    while (in != 'y');
 
     (void) pthread_create(&threadId, 0, userInput, 0);
     
@@ -83,7 +89,7 @@ int main(int argc, char **argv) {
 
     std::cout<<"Capturing frames\n";
 
-    uint8_t i = 0;
+    uint64_t t1, t2, t2_1, t3;
     while (running) {
 	t1 = mstime();
 
@@ -92,14 +98,13 @@ int main(int argc, char **argv) {
         
         t2 = mstime();
 
-        cv::cvtColor(imgOriginal, imgHsv, CV_RGB2HSV);
+        cv::cvtColor(imgOriginal, imgHsv, CV_BGR2HSV);
+        t2_1 = mstime();
         cv::inRange(imgHsv, cv::Scalar(lowH, lowS, lowV), cv::Scalar(highH, highS, highV), imgThresh);
 
-        cv::GaussianBlur(imgThresh, imgThresh, cv::Size(3, 3), 0);
-        cv::dilate(imgThresh, imgThresh, 0);
-        cv::erode(imgThresh, imgThresh, 0);
+        cv::GaussianBlur(imgThresh, imgThresh, cv::Size(9, 3), 0);
 
-        //cv::HoughCircles(imgThresh, v3fCircles, CV_HOUGH_GRADIENT, 2, imgThresh.rows / 4, 100, 50, 10, 800);
+        cv::HoughCircles(imgThresh, v3fCircles, CV_HOUGH_GRADIENT, 4, 1000, 100, 100, 50, 250);
         
         if (v3fCircles.size() == 0) {
                 std::cout<<"nothing detected\n";
@@ -111,10 +116,10 @@ int main(int argc, char **argv) {
 
         t3 = mstime();
         uint64_t diff12 = t2 - t1;
+        uint64_t diffconversion = t2_1 - t2;
         uint64_t diff23 = t3 - t2;
         std::cout<<"Capturetime: "<<diff12<<"ms, Computationtime: "<<diff23<<"ms\n"; 
-        i = 0;
-	++i;
+        std::cout<<"Conversiontime: "<<diffconversion<<"ms\n"; 
     }
 
     std::cout<<"Stopping camera\n";
