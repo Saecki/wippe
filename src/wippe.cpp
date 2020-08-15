@@ -22,11 +22,10 @@ int main(int argc, char **argv) {
 
     raspicam::RaspiCam_Cv camera;
     cv::Mat imgOriginal;
-    cv::Mat imgHsv;
     cv::Mat imgThresh;
     std::vector<cv::Vec3f> v3fCircles;
 
-    uint8_t lowH, highH, lowS, highS, lowV, highV;
+    uint8_t lowB, highB, lowG, highG, lowR, highR;
 
     std::cout<<"Starting\n";
 
@@ -47,36 +46,27 @@ int main(int argc, char **argv) {
         camera.grab();
         camera.retrieve(imgOriginal);
 
-        cv::cvtColor(imgOriginal, imgHsv, CV_BGR2HSV);
-        cv::GaussianBlur(imgOriginal, imgThresh, cv::Size(9, 9), 0);
-        cv::dilate(imgThresh, imgThresh, 0);
-        cv::erode(imgThresh, imgThresh, 0);
-
-        std::cout<<"writing image\n";
-        cv::imwrite("/home/pi/original.jpg", imgOriginal);
-        cv::imwrite("/home/pi/thresh.jpg", imgThresh);
-
-        int width = imgHsv.cols;
-        int height = imgHsv.rows;
+        int width = imgOriginal.cols;
+        int height = imgOriginal.rows;
         int radius = std::min(width, height) / 3;
 
-        cv::Mat mask = cv::Mat::zeros(imgHsv.size(), CV_8UC1);
+        cv::Mat mask = cv::Mat::zeros(imgOriginal.size(), CV_8UC1);
         cv::circle(mask, cv::Point(width / 2, height / 2), radius, 1);
 
-        cv::Scalar mean = cv::mean(imgHsv, mask);
+        cv::Scalar mean = cv::mean(imgOriginal, mask);
 
-        uint8_t h = mean[0];
-        uint8_t s = mean[1];
-        uint8_t v = mean[2];
+        uint8_t b = mean[0];
+        uint8_t g = mean[1];
+        uint8_t r = mean[2];
 
-        std::cout<<"h: "<<unsigned(h)<<", s: "<<unsigned(s)<<", v: "<<unsigned(v)<<"\n";
+        std::cout<<"b: "<<unsigned(b)<<", g: "<<unsigned(g)<<", r: "<<unsigned(r)<<"\n";
 
-        lowH = std::clamp(h - 20, 0, 160);
-        highH = std::clamp(h + 20, 0, 160);
-        lowS = std::clamp(s - 60, 0, 255);
-        highS = std::clamp(s + 30, 0, 255);
-        lowV = std::clamp(v - 100, 0, 255);
-        highV = std::clamp(v + 40, 0, 255);
+        lowB = std::clamp(b - 70, 0, 255);
+        highB = std::clamp(b + 30, 0, 255);
+        lowG = std::clamp(g - 70, 0, 255);
+        highG = std::clamp(g + 30, 0, 255);
+        lowR = std::clamp(r - 70, 0, 255);
+        highR = std::clamp(r + 30, 0, 255);
 
         std::cout<<"Press y enter to continue or any other character to retry:"<<std::flush;
         std::cin>>in;
@@ -89,37 +79,44 @@ int main(int argc, char **argv) {
 
     std::cout<<"Capturing frames\n";
 
-    uint64_t t1, t2, t2_1, t3;
+    uint64_t t1, t2, t3, t4, t5;
+    float xpos, ypos;
     while (running) {
 	t1 = mstime();
 
         camera.grab();
         camera.retrieve(imgOriginal);
-        
         t2 = mstime();
 
-        cv::cvtColor(imgOriginal, imgHsv, CV_BGR2HSV);
-        t2_1 = mstime();
-        cv::inRange(imgHsv, cv::Scalar(lowH, lowS, lowV), cv::Scalar(highH, highS, highV), imgThresh);
-
-        cv::GaussianBlur(imgThresh, imgThresh, cv::Size(9, 3), 0);
-
-        cv::HoughCircles(imgThresh, v3fCircles, CV_HOUGH_GRADIENT, 4, 1000, 100, 100, 50, 250);
+        cv::inRange(imgOriginal, cv::Scalar(lowB, lowG, lowR), cv::Scalar(highB, highG, highR), imgThresh);
+        t3 = mstime();
+        
+        cv::GaussianBlur(imgThresh, imgThresh, cv::Size(3, 3), 0);
+        
+        t4 = mstime();
+        cv::HoughCircles(imgThresh, v3fCircles, CV_HOUGH_GRADIENT, 6, 1000, 100, 100, 50, 250);
         
         if (v3fCircles.size() == 0) {
                 std::cout<<"nothing detected\n";
         }else {
+            float factor = (float) imgThresh.cols / (float) imgThresh.rows;
+            xpos = (float) v3fCircles[0][0] / (float) imgThresh.cols;
+            ypos = (float) v3fCircles[0][1] / (float) imgThresh.rows;
+            ypos = ypos / factor;
+
+            std::cout<<"xpos: "<<xpos<<", ypos: "<<ypos<<"\n";
+
             for (int i = 0; i < v3fCircles.size(); i++) {
                 std::cout<<"x: "<<v3fCircles[i][0]<<", y: "<<v3fCircles[i][1]<<", r: "<<v3fCircles[i][2]<<"\n";
             }
         }
 
-        t3 = mstime();
-        uint64_t diff12 = t2 - t1;
-        uint64_t diffconversion = t2_1 - t2;
-        uint64_t diff23 = t3 - t2;
-        std::cout<<"Capturetime: "<<diff12<<"ms, Computationtime: "<<diff23<<"ms\n"; 
-        std::cout<<"Conversiontime: "<<diffconversion<<"ms\n"; 
+        t5 = mstime();
+        uint64_t capture = t2 - t1;
+        uint64_t range = t3 - t2;
+        uint64_t blur = t4 - t3;
+        uint64_t circles = t5 - t4;
+        std::cout<<"Capture: "<<capture<<"ms, InRange: "<<range<<"ms, Blur: "<<blur<<"ms, Circles: "<<circles<<"ms\n"; 
     }
 
     std::cout<<"Stopping camera\n";
