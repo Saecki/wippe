@@ -1,15 +1,15 @@
 #include <chrono>
 #include <vector>
 #include <opencv2/opencv.hpp>
-#include <opencv2/tracking/tracker.hpp>
+#include <opencv2/tracking.hpp>
 #include <raspicam/raspicam_cv.h>
 #include <wiringSerial.h>
 
 #define RGB_UPPER_MARGIN 40
 #define RGB_LOWER_MARGIN 40
 
-#define DETECTING = 0
-#define TRACKING = 1
+#define DETECTING 0
+#define TRACKING 1
 
 static volatile bool running = true;
 
@@ -94,8 +94,8 @@ int main(int argc, char **argv) {
     uint64_t t1, t2, t3, t4, t5, t6;
 
     std::vector<cv::Vec3f> circles;
-    Ptr<cv::Tracker> tracker = cv::Tracker::create("KCF");
-    cv::Rect2D roi;
+    cv::Ptr<cv::Tracker> tracker = cv::Tracker::create("KCF");
+    cv::Rect2d box;
     int state = DETECTING;
     float xpos, ypos, radius;
     while (running) {
@@ -131,17 +131,17 @@ int main(int argc, char **argv) {
                 radius = (float) circles[closest][2];
                 ypos = ypos * factor + (1 - factor) / 2;
 
-                roi = Rect2D(xpos - radius, ypos - radius, xpos + radius, ypos + radius);
-                tracker->init(imgOriginal, roi);
+                box = cv::Rect2d(xpos - radius, ypos - radius, radius, radius);
+                tracker->init(imgOriginal, box);
                 
                 state = TRACKING;
             }
         } else if (state == TRACKING) {
-            bool tracked = tracker->update(imgOriginal, roi);
+            bool tracked = tracker->update(imgOriginal, box);
 
             if (tracked) {
-                xpos = roi.x + roi.w / 2;
-                ypos = roi.y + roi.h / 2;
+                xpos = box.x + box.width / 2;
+                ypos = box.y + box.height / 2;
             } else {
                 state = DETECTING;
             }
