@@ -61,12 +61,12 @@ int main(int argc, char **argv) {
 
         std::cout<<"b: "<<unsigned(b)<<", g: "<<unsigned(g)<<", r: "<<unsigned(r)<<"\n";
 
-        lowB = std::clamp(b - 70, 0, 255);
-        highB = std::clamp(b + 30, 0, 255);
-        lowG = std::clamp(g - 70, 0, 255);
-        highG = std::clamp(g + 30, 0, 255);
-        lowR = std::clamp(r - 70, 0, 255);
-        highR = std::clamp(r + 30, 0, 255);
+        lowB = std::clamp(b - 80, 0, 255);
+        highB = std::clamp(b + 50, 0, 255);
+        lowG = std::clamp(g - 80, 0, 255);
+        highG = std::clamp(g + 50, 0, 255);
+        lowR = std::clamp(r - 80, 0, 255);
+        highR = std::clamp(r + 50, 0, 255);
 
         std::cout<<"Press y enter to continue or any other character to retry:"<<std::flush;
         std::cin>>in;
