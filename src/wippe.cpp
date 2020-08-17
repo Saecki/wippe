@@ -42,6 +42,8 @@ int main(int argc, char **argv) {
         std::cerr<<"Error opening serial port\n";
         return 1;
     }
+    serialPrintf(serialFD, "0.5,0.5;\n");
+
 
     camera.set(CV_CAP_PROP_FORMAT, CV_8UC3);
     std::cout<<"Opening camera\n";

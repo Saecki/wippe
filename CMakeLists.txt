@@ -19,5 +19,5 @@ add_executable (wippe src/wippe.cpp)
 
 target_link_libraries (wippe ${raspicam_LIBS})
 target_link_libraries (wippe ${raspicam_CV_LIBS})
-target_link_libraries (wippe ${OpenCV_LIBS};tracking;opencv_tracking)
+target_link_libraries (wippe ${OpenCV_LIBS})
 target_link_libraries (wippe ${wiringPi_LIBS})
