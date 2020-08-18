@@ -32,9 +32,9 @@ int main(int argc, char **argv) {
 
     uint8_t lowB, highB, lowG, highG, lowR, highR;
 
-    std::cout<<"Starting\n";
+    printf("Starting\n");
     
-    std::cout<<"Opening serial port\n";
+    printf("Opening serial port\n");
     int serialFD = serialOpen("/dev/ttyUSB0", 9600);
     if (serialFD == -1) {
         std::cerr<<"Error opening serial port\n";
@@ -44,7 +44,8 @@ int main(int argc, char **argv) {
 
 
     camera.set(CV_CAP_PROP_FORMAT, CV_8UC3);
-    std::cout<<"Opening camera\n";
+
+    printf("Opening camera\n");
     if (!camera.open()) {
 	std::cerr<<"Error opening camera\n";
 	return 1;
@@ -55,7 +56,7 @@ int main(int argc, char **argv) {
     do {
         while (std::cin.get() != '\n');
 
-        std::cout<<"Capturing samle data\n";
+        printf("Capturing samle data\n");
         camera.grab();
         camera.retrieve(imgOriginal);
 
@@ -72,7 +73,7 @@ int main(int argc, char **argv) {
         uint8_t g = mean[1];
         uint8_t r = mean[2];
 
-        std::cout<<"b: "<<unsigned(b)<<", g: "<<unsigned(g)<<", r: "<<unsigned(r)<<"\n";
+        printf("b: %u, g: %u, r: %u\n", b, g, r);
 
         lowB = std::clamp(b - RGB_LOWER_MARGIN, 0, 255);
         highB = std::clamp(b + RGB_UPPER_MARGIN, 0, 255);
@@ -85,11 +86,11 @@ int main(int argc, char **argv) {
         std::cin>>in;
     }
     while (in != 'y');
-        
+
     uint8_t b = 90;
     uint8_t g = 20;
     uint8_t r = 20;
-
+    printf("TODO: remove hardcoded values: b: %u, g: %u, r: %u\n", b, g, r);
     lowB = std::clamp(b - RGB_LOWER_MARGIN, 0, 255);
     highB = std::clamp(b + RGB_UPPER_MARGIN, 0, 255);
     lowG = std::clamp(g - RGB_LOWER_MARGIN, 0, 255);
@@ -99,25 +100,24 @@ int main(int argc, char **argv) {
 
     (void) pthread_create(&threadId, 0, userInput, 0);
     
-    std::cout<<"Press q enter to exit\n";
-    std::cout<<"Capturing frames\n";
-
-    uint64_t t1, t2, t3, t4, t5, t6;
+    printf("Press q enter to exit\n");
+    printf("Capturing frames\n");
 
     std::vector<cv::Vec3f> circles;
-    cv::Ptr<cv::Tracker> tracker = cv::TrackerKCF::create();
+    cv::Ptr<cv::Tracker> tracker;
     cv::Rect2d box;
     int state = DETECTING;
     float xpos = 0.5;
     float ypos = 0.5;
     float radius = 0;
+    uint64_t t1 = 0;
+    uint64_t t2 = 0;
+    uint64_t t3 = 0;
     while (running) {
-        int initialState = state;
-
         if (state == DETECTING) {
-            std::cout<<"DETECTING ";
-        } else {
-            std::cout<<"TRACKING ";
+            printf("DETECTING ");
+        } else if (state == TRACKING) {
+            printf("TRACKING ");
         }
 	t1 = mstime();
 
@@ -127,11 +127,7 @@ int main(int argc, char **argv) {
 
         if (state == DETECTING) {
             cv::inRange(imgOriginal, cv::Scalar(lowB, lowG, lowR), cv::Scalar(highB, highG, highR), imgThresh);
-            t3 = mstime();
-            
             cv::GaussianBlur(imgThresh, imgThresh, cv::Size(3, 3), 0);
-            t4 = mstime();
-
             cv::HoughCircles(imgThresh, circles, CV_HOUGH_GRADIENT, 6, 1000, 100, 100, 50, 250);
 
             if (circles.size() != 0) {
@@ -154,52 +150,45 @@ int main(int argc, char **argv) {
                 radius = (float) circles[closest][2];
                 ypos = ypos * factor + (1 - factor) / 2;
 
+                tracker = cv::TrackerKCF::create();
                 box = cv::Rect2d(xraw - radius, yraw - radius, radius * 2, radius * 2);
-                tracker->init(imgOriginal, box);
+                bool ok = tracker->init(imgOriginal, box);
                 
-                state = TRACKING;
+                if (ok) state = TRACKING;
             }
         } else if (state == TRACKING) {
-            bool tracked = tracker->update(imgOriginal, box);
+            bool ok = tracker->update(imgOriginal, box);
 
-            if (tracked) {
+            if (ok) {
                 float factor = (float) imgThresh.rows / (float) imgThresh.cols;
                 xpos = (box.x + box.width / 2) / (float) imgThresh.cols;
                 ypos = (box.y + box.height / 2) / (float) imgThresh.rows;
                 ypos = ypos * factor + (1 - factor) / 2;
             } else {
                 state = DETECTING;
+                printf("Error tracking");
             }
         }
-        t5 = mstime();
+        t3 = mstime();
         
         serialPrintf(serialFD, "%f,%f\n", xpos, ypos);
-        printf("%f,%f\n", xpos, ypos);
-        t6 = mstime();
-
+        
         uint64_t capture = t2 - t1;
-        uint64_t output = t6 - t5;
-
-        if (initialState == DETECTING) {
-            uint64_t range = t3 - t2;
-            uint64_t blur = t4 - t3;
-            uint64_t circles = t5 - t4;
-            printf("Capture: %ums, InRange: %ums, Blur: %ums, Circles: %ums, Output: %ums\n", capture, range, blur, circles, output); 
-        } else if (initialState == TRACKING) {
-            uint64_t tracking = t5 - t4;
-            printf("Capture: %ums, Tracking: %ums, Output: %ums\n", capture, tracking, output); 
-        }
+        uint64_t calc = t3 - t2;
+        printf("x: %f,y: %f, capture: %ums, calc: %ums\n", xpos, ypos, capture, calc);
     }
 
-    std::cout<<"Stopping camera\n";
+    printf("Stopping camera\n");
     camera.release();
 
-    std::cout<<"Closing serial port\n";
+    printf("Closing serial port\n");
+    serialPrintf(serialFD, "0.5,0.5\n");
     serialPrintf(serialFD, "0.5,0.5\n");
     serialClose(serialFD);
-
+    
     (void) pthread_join(threadId, NULL);
-    std::cout<<"Done\n";
+
+    printf("Done\n");
 
     return 0;
 }
