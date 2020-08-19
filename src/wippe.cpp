@@ -5,8 +5,7 @@
 #include <raspicam/raspicam_cv.h>
 #include <wiringSerial.h>
 
-#define RGB_UPPER_MARGIN 30 
-#define RGB_LOWER_MARGIN 30 
+#define STD_DEV_HIST_SIZE 20; 
 
 enum class State {
     Detecting,
@@ -56,9 +55,6 @@ int main(int argc, char **argv) {
 	return 1;
     }
 
-    std::cout<<"Press enter to continue"<<std::flush;
-    while (std::cin.get() != '\n');
-
     (void) pthread_create(&threadId, 0, userInput, 0);
     
     printf("Press q enter to exit\n");
@@ -77,7 +73,6 @@ int main(int argc, char **argv) {
     uint64_t t2 = 0;
     uint64_t t3 = 0;
     while (running) {
-
         if (state == State::Detecting) {
             printf("DETECTING ");
         } else if (state == State::Tracking) {
@@ -92,7 +87,9 @@ int main(int argc, char **argv) {
 
         if (state == State::Detecting) {
             cv::cvtColor(imgOriginal, imgThresh, cv::COLOR_BGR2GRAY);
-            cv::GaussianBlur(imgThresh, imgThresh, cv::Size(3, 3), 0);
+            cv::GaussianBlur(imgThresh, imgThresh, cv::Size(5, 5), 0);
+            cv::dilate(imgThresh, imgThresh, 5);
+            cv::erode(imgThresh, imgThresh, 5);
             cv::HoughCircles(
                 imgThresh,
                 circles,
@@ -129,7 +126,17 @@ int main(int argc, char **argv) {
                 box = cv::Rect2d(xraw - radius, yraw - radius, radius * 2, radius * 2);
                 bool ok = tracker->init(imgOriginal, box);
                 
-                if (ok) state = State::Tracking;
+                if (ok) {
+                    state = State::Tracking;
+                } else {
+                    serialPrintf(serialFD, "0.5,0.5\n");
+                    printf("Nothing detected\n");
+                    continue;
+                }
+            } else {
+                serialPrintf(serialFD, "0.5,0.5\n");
+                printf("Nothing detected\n");
+                continue;
             }
         } else if (state == State::Tracking) {
             bool ok = tracker->update(imgOriginal, box);
@@ -141,7 +148,6 @@ int main(int argc, char **argv) {
                 ypos = ypos * factor + (1 - factor) / 2;
             } else {
                 state = State::Detecting;
-                printf("Error tracking");
             }
         }
         t3 = mstime();
