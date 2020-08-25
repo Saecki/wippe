@@ -43,7 +43,7 @@ int main(int argc, char **argv) {
         std::cerr<<"Error opening serial port\n";
         return 1;
     }
-    serialPrintf(serialFD, "0.5,0.5\n");
+    serialPrintf(serialFD, "{ \"ballX\": 0.5, \"ballY\": 0.5 }\n");
 
     camera.set(CV_CAP_PROP_FORMAT, CV_8UC3);
     camera.set(cv::CAP_PROP_FRAME_WIDTH, 320);
@@ -129,12 +129,12 @@ int main(int argc, char **argv) {
                 if (ok) {
                     state = State::Tracking;
                 } else {
-                    serialPrintf(serialFD, "0.5,0.5\n");
+                    serialPrintf(serialFD, "{ \"ballX\": 0.5, \"ballY\": 0.5 }\n");
                     printf("Nothing detected\n");
                     continue;
                 }
             } else {
-                serialPrintf(serialFD, "0.5,0.5\n");
+                serialPrintf(serialFD, "{ \"ballX\": 0.5, \"ballY\": 0.5 }\n");
                 printf("Nothing detected\n");
                 continue;
             }
@@ -152,7 +152,7 @@ int main(int argc, char **argv) {
         }
         t3 = mstime();
         
-        serialPrintf(serialFD, "%f,%f\n", xpos, ypos);
+        serialPrintf(serialFD, "{ \"ballX\": %f, \"ballY\": %f }\n", xpos, ypos);
         
         uint64_t capture = t2 - t1;
         uint64_t calc = t3 - t2;
@@ -165,9 +165,8 @@ int main(int argc, char **argv) {
     camera.release();
 
     printf("Closing serial port\n");
-    serialPrintf(serialFD, "0.5,0.5\n");
-    serialPrintf(serialFD, "0.5,0.5\n");
-    serialPrintf(serialFD, "0.5,0.5\n");
+    serialPrintf(serialFD, "{ \"ballX\": 0.5, \"ballY\": 0.5 }\n");
+
     serialClose(serialFD);
     
     (void) pthread_join(threadId, NULL);
