@@ -12,6 +12,56 @@ enum class State {
     Tracking
 };
 
+struct Position {
+    float x;
+    float y;
+};
+
+uint64_t mstime() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+	std::chrono::system_clock::now().time_since_epoch()
+    ).count();
+}
+
+class PIDController {
+    float PF = 0.8;
+    float IF = 0;
+    float DF = 260;
+    
+    uint64_t lastUpdateTime = 0;
+    float lastDiffX = 0;
+    float lastDiffY = 0;
+    float ix = 0;
+    float iy = 0;
+
+    public: Position calc(float x, float y) {
+        uint64_t currentTime = mstime();
+        
+        float diffX = 0.5 - x;
+        float diffY = 0.5 - y;
+        float timeDiff = currentTime - lastUpdateTime;
+        
+        float px = diffX * PF;
+        float py = diffY * PF;
+
+        float dx = (diffX - lastDiffX) * DF / timeDiff;
+        float dy = (diffY - lastDiffY) * DF / timeDiff;
+        
+        ix += diffX * IF / timeDiff;
+        iy += diffY * IF / timeDiff;
+
+        float calcX = std::clamp(0.5f + px + ix + dx, 0.0f, 1.0f);
+        float calcY = std::clamp(0.5f + py + iy + dy, 0.0f, 1.0f);
+
+        lastDiffX = diffX;
+        lastDiffY = diffY;
+        lastUpdateTime = currentTime;
+
+        return { calcX, calcY };
+    }
+
+};
+
 static volatile bool running = true;
 static uint8_t lowB, highB, lowG, highG, lowR, highR;
 
@@ -23,12 +73,6 @@ static void* userInput(void*) {
             running = false; 
         } 
     } 
-}
-
-uint64_t mstime() {
-    return std::chrono::duration_cast<std::chrono::milliseconds>(
-	std::chrono::system_clock::now().time_since_epoch()
-    ).count();
 }
 
 int main(int argc, char **argv) {
@@ -43,7 +87,8 @@ int main(int argc, char **argv) {
         std::cerr<<"Error opening serial port\n";
         return 1;
     }
-    serialPrintf(serialFD, "{ \"ballX\": 0.5, \"ballY\": 0.5 }\n");
+    serialPrintf(serialFD, "0.5,0.5\n");
+
 
     camera.set(CV_CAP_PROP_FORMAT, CV_8UC3);
     camera.set(cv::CAP_PROP_FRAME_WIDTH, 320);
@@ -60,6 +105,7 @@ int main(int argc, char **argv) {
     printf("Press q enter to exit\n");
     printf("Capturing frames\n");
 
+    // camera
     cv::Mat imgOriginal;
     cv::Mat imgThresh;
     std::vector<cv::Vec3f> circles;
@@ -72,6 +118,9 @@ int main(int argc, char **argv) {
     uint64_t t1 = 0;
     uint64_t t2 = 0;
     uint64_t t3 = 0;
+
+    PIDController controller;
+
     while (running) {
         if (state == State::Detecting) {
             printf("DETECTING ");
@@ -129,12 +178,12 @@ int main(int argc, char **argv) {
                 if (ok) {
                     state = State::Tracking;
                 } else {
-                    serialPrintf(serialFD, "{ \"ballX\": 0.5, \"ballY\": 0.5 }\n");
+                    serialPrintf(serialFD, "0.5,0.5\n");
                     printf("Nothing detected\n");
                     continue;
                 }
             } else {
-                serialPrintf(serialFD, "{ \"ballX\": 0.5, \"ballY\": 0.5 }\n");
+                serialPrintf(serialFD, "0.5,0.5\n");
                 printf("Nothing detected\n");
                 continue;
             }
@@ -151,12 +200,16 @@ int main(int argc, char **argv) {
             }
         }
         t3 = mstime();
+
+        Position pos = controller.calc(xpos, ypos);
+        float xcalc = pos.x;
+        float ycalc = pos.y;
         
-        serialPrintf(serialFD, "{ \"ballX\": %f, \"ballY\": %f }\n", xpos, ypos);
+        serialPrintf(serialFD,"%f,%f\n", xcalc, ycalc);
         
         uint64_t capture = t2 - t1;
         uint64_t calc = t3 - t2;
-        printf("x: %f,y: %f", xpos, ypos);
+        printf("x: %f,y: %f, cx: %f, cy: %f", xpos, ypos, xcalc, ycalc);
         std::cout<<", capture: "<<capture<<"ms";
         std::cout<<", calc: "<<calc<<"ms\n";
     }
@@ -165,7 +218,7 @@ int main(int argc, char **argv) {
     camera.release();
 
     printf("Closing serial port\n");
-    serialPrintf(serialFD, "{ \"ballX\": 0.5, \"ballY\": 0.5 }\n");
+    serialPrintf(serialFD, "0.5,0.5\n");
 
     serialClose(serialFD);
     
