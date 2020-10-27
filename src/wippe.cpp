@@ -1,12 +1,12 @@
 #include <chrono>
-#include <vector>
 #include <opencv2/opencv.hpp>
 #include <opencv2/tracking.hpp>
 #include <raspicam/raspicam_cv.h>
+#include <vector>
 #include <wiringSerial.h>
+#include <ncurses.h>
 
 static volatile bool running = true;
-static uint8_t lowB, highB, lowG, highG, lowR, highR;
 
 static void* userInput(void*) {
     char in;
@@ -15,26 +15,13 @@ static void* userInput(void*) {
 	if (in == 'q') {
             running = false; 
         } 
-    } 
+    }
 }
 
 uint64_t mstime() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
 	std::chrono::system_clock::now().time_since_epoch()
     ).count();
-}
-
-#define FACTOR 100.0
-double flatten(double a) {
-    if (a == 0.0) return a;
-    if (a > 0.01) return a;
-    
-    double v = std::abs(a);
-    double f = std::pow(v * FACTOR, 1.8) / FACTOR;
-
-    if (f == 0.0) return f;
-
-    return std::clamp(a * (f / v), -0.5, 0.5);
 }
 
 enum class State {
@@ -54,15 +41,15 @@ class PositionTracker {
     private:
         raspicam::RaspiCam_Cv camera;
         
-        cv::Mat imgOriginal;
-        cv::Mat imgThresh;
+        cv::Mat img_orig;
+        cv::Mat img_thresh;
         
         cv::Ptr<cv::Tracker> tracker;
         cv::Rect2d roi;
 
     public:
         PositionTracker() {
-            camera.set(CV_CAP_PROP_FORMAT, CV_8UC3);
+            camera.set(cv::CAP_PROP_FORMAT, CV_8UC3);
             camera.set(cv::CAP_PROP_FRAME_WIDTH, 320);
             camera.set(cv::CAP_PROP_FRAME_HEIGHT, 240);
 
@@ -78,7 +65,7 @@ class PositionTracker {
 
         void capture() {
             camera.grab();
-            camera.retrieve(imgOriginal);
+            camera.retrieve(img_orig);
         }
 
         std::optional<Point> track() {
@@ -87,60 +74,60 @@ class PositionTracker {
             if (state == State::Detecting) {
                 std::vector<cv::Vec3f> circles;
 
-                cv::cvtColor(imgOriginal, imgThresh, cv::COLOR_BGR2GRAY);
-                cv::GaussianBlur(imgThresh, imgThresh, cv::Size(3, 3), 0);
-                cv::dilate(imgThresh, imgThresh, 5);
-                cv::erode(imgThresh, imgThresh, 5);
+                cv::cvtColor(img_orig, img_thresh, cv::COLOR_BGR2GRAY);
+                //cv::GaussianBlur(img_thresh, img_thresh, cv::Size(3, 3), 0);
+                cv::dilate(img_thresh, img_thresh, 3);
+                cv::erode(img_thresh, img_thresh, 3);
                 cv::HoughCircles(
-                    imgThresh,
+                    img_thresh,
                     circles,
                     CV_HOUGH_GRADIENT,      // method
                     2,                      // inverse ratio of accumulator resolution
-                    imgOriginal.cols * 2,   // minDist
+                    img_orig.cols * 2,   // minDist
                     100,                    // param1: behavior depends on method
                     100,                    // param2: behavior depends on method
-                    imgOriginal.cols / 25,  // minRadius
-                    imgOriginal.cols / 5    // maxRadius
+                    img_orig.cols / 25,  // minRadius
+                    img_orig.cols / 5    // maxRadius
                 );
 
                 if (circles.size() != 0) {
-                    int closestDiff = std::abs(circles[0][0] - pos.x) + std::abs(circles[0][1] - pos.y);
-                    int closest = 0;
-                    for (int i = 1; i < circles.size(); i++) {
-                        int diff = std::abs(circles[i][0] - pos.x) + std::abs(circles[i][1] - pos.y);
+                    uint32_t closestDiff = std::abs(circles[0][0] - pos.x) + std::abs(circles[0][1] - pos.y);
+                    uint32_t closest = 0;
+                    for (auto i = 1; i < circles.size(); ++i) {
+                        auto diff = std::abs(circles[i][0] - pos.x) + std::abs(circles[i][1] - pos.y);
                         if (diff < closestDiff) {
                             closestDiff = diff;
                             closest = i;
                         }
                     }
 
-                    double factor = (double) imgThresh.rows / (double) imgThresh.cols;
+                    double factor = (double) img_thresh.rows / (double) img_thresh.cols;
                     double xraw = (double) circles[closest][0];
                     double yraw = (double) circles[closest][1];
                     
-                    pos.x = xraw / (double) imgThresh.cols;
-                    pos.y = yraw / (double) imgThresh.rows * (factor + (1 - factor) / 2);
+                    pos.x = xraw / (double) img_thresh.cols;
+                    pos.y = yraw / (double) img_thresh.rows * (factor + (1 - factor) / 2);
                     double radius = (double) circles[closest][2];
 
                     tracker = cv::TrackerKCF::create();
                     roi = cv::Rect2d(xraw - radius, yraw - radius, radius * 2, radius * 2);
-                    bool ok = tracker->init(imgOriginal, roi);
+                    bool ok = tracker->init(img_orig, roi);
                     
-                    if (ok) {
+                    if (ok) 
                         state = State::Tracking;
-                    } else {
+                    else 
                         return {};
-                    }
+
                 } else {
                     return {};
                 }
             } else if (state == State::Tracking) {
-                bool ok = tracker->update(imgOriginal, roi);
+                bool ok = tracker->update(img_orig, roi);
 
                 if (ok) {
-                    double factor = (double) imgThresh.rows / (double) imgThresh.cols;
-                    pos.x = (roi.x + (double) roi.width / 2.0) / (double) imgThresh.cols;
-                    pos.y = ((roi.y + (double) roi.height / 2.0) / (double) imgThresh.rows) * (factor + (1 - factor) / 2);
+                    double factor = (double) img_thresh.rows / (double) img_thresh.cols;
+                    pos.x = (roi.x + (double) roi.width / 2.0) / (double) img_thresh.cols;
+                    pos.y = ((roi.y + (double) roi.height / 2.0) / (double) img_thresh.rows) * (factor + (1 - factor) / 2);
                 } else {
                     state = State::Detecting;
                 }
@@ -150,62 +137,83 @@ class PositionTracker {
         }
 };
 
-class PIDController {
-    #define HIST_SIZE 2
-    double dxHist[HIST_SIZE];
-    double dyHist[HIST_SIZE];
+class PDController {
+#define MAX_HIST_SIZE 10u
+    public:
+        double PF = 0.4;
+        double DF = 220;
 
-    double PF = 0.4;
-    double IF = 0;
-    double DF = 220;
+    private:
+        uint64_t last_update_time = 0;
+        Point last_diff;
+        
+        uint32_t hist_size;
+        std::array<Point, MAX_HIST_SIZE> d_hist;
     
-    uint64_t lastUpdateTime = 0;
-    Point lastDiff;
-    Point i;
+    public:
+        PDController(uint32_t hist_size) {
+            set_hist_size(hist_size);
+        }
+
+    private:
+        double flatten(double a) {
+            const double limit = 0.01;
+            const double factor = 100;
+
+            if (a == 0.0) return a;
+            if (a > limit) return a;
+            
+            double v = std::abs(a);
+            double f = std::pow(v * factor, 1.8) / factor;
+
+            if (f == 0.0) return f;
+
+            return std::clamp(a * (f / v), -0.5, 0.5);
+        }
 
     public:
-        void reinit(double lastX, double lastY) {
-            lastDiff = { 0.5 - lastY, 0.5 - lastY };
+        void reinit(double last_x, double last_y) {
+            last_diff = { 0.5 - last_x, 0.5 - last_y };
+        }
+
+        void set_hist_size(uint32_t hist_size) {
+            this->hist_size = std::clamp(hist_size, 0u, MAX_HIST_SIZE);
         }
 
         Point calc(double x, double y) {
-            uint64_t currentTime = mstime();
+            uint64_t current_time = mstime();
             
             Point diff = { 0.5 - x, 0.5 - y };
-            double timeDiff = currentTime - lastUpdateTime;
+            double time_diff = current_time - last_update_time;
             
-            float px = diff.x * PF;
-            float py = diff.y * PF;
-
-            i.x += diff.x * IF / timeDiff;
-            i.y += diff.y * IF / timeDiff;
+            double px = diff.x * PF;
+            double py = diff.y * PF;
             
-            float ndx = flatten(diff.x - lastDiff.x) * DF / timeDiff;
-            float ndy = flatten(diff.y - lastDiff.y) * DF / timeDiff;
-
-            for (int i = 0; i < HIST_SIZE - 1; i++) {
-                dxHist[i] = dxHist[i + 1];
-                dyHist[i] = dyHist[i + 1];
+            double ndx = flatten(diff.x - last_diff.x) * DF / time_diff;
+            double ndy = flatten(diff.y - last_diff.y) * DF / time_diff;
+            
+            for (auto i = 0; i < hist_size - 1; ++i) {
+                d_hist[i] = d_hist[i + 1];
             }
-            dxHist[HIST_SIZE - 1] = ndx;
-            dyHist[HIST_SIZE - 1] = ndy;
+            d_hist[hist_size - 1] = { ndx, ndy };
             
-            double dxsum = 0.0;
-            double dysum = 0.0;
-            for (int i = 0; i < HIST_SIZE; i++) {
-                dxsum += dxHist[i];
-                dysum += dyHist[i];
+            double dx_hist_sum = 0.0;
+            double dy_hist_sum = 0.0;
+            for (auto i = 0; i < hist_size; ++i) {
+                dx_hist_sum += d_hist[i].x;
+                dy_hist_sum += d_hist[i].y;
             }
-            double dx = dxsum / (double)HIST_SIZE; 
-            double dy = dysum / (double)HIST_SIZE;
 
-            double calcX = std::clamp(0.5 + px + i.x + dx, 0.0, 1.0);
-            double calcY = std::clamp(0.5 + py + i.y + dy, 0.0, 1.0);
+            double dx = dx_hist_sum / static_cast<double>(hist_size); 
+            double dy = dy_hist_sum / static_cast<double>(hist_size);
 
-            lastDiff = diff;
-            lastUpdateTime = currentTime;
+            double calc_x = std::clamp(0.5 + px + dx, 0.0, 1.0);
+            double calc_y = std::clamp(0.5 + py + dy, 0.0, 1.0);
 
-            return { calcX, calcY };
+            last_diff = diff;
+            last_update_time = current_time;
+
+            return { calc_x, calc_y };
         }
 };
 
@@ -215,7 +223,7 @@ int main(int argc, char **argv) {
     printf("Starting\n");
     
     PositionTracker tracker;
-    PIDController controller;
+    PDController controller(2);
     bool tracking = false;
     
     printf("Opening serial port\n");
